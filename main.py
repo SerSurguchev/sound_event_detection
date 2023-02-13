@@ -90,3 +90,6 @@ def train(model=Wavegram_Cnn14(**model_config)):
         callbacks=callbacks,
         main_metric="epoch_f1",
         minimize_metric=False)
+
+if __name__ == '__main__':
+    train()
