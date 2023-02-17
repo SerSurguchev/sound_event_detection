@@ -3,11 +3,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from catalyst.dl import SupervisedRunner, State, CallbackOrder, Callback, CheckpointCallback
+from catalyst import dl, utils
 
 from models import (
     Cnn14,
     Wavegram_Cnn14,
     MobileNetV2,
+    Wavegram_Logmel_Cnn14
 )
 
 from pytorch_utils import (
@@ -69,7 +71,6 @@ def train(model=Wavegram_Cnn14(**model_config)):
     callbacks = [
         F1Callback(input_key="targets", output_key="logits", prefix="f1"),
         mAPCallback(input_key="targets", output_key="logits", prefix="mAP"),
-        CheckpointCallback(save_n_best=0)
     ]
 
     runner = SupervisedRunner(
@@ -78,6 +79,7 @@ def train(model=Wavegram_Cnn14(**model_config)):
         input_target_key="targets"
     )
 
+    # Model training
     runner.train(
         model=model,
         criterion=criterion,
@@ -86,10 +88,18 @@ def train(model=Wavegram_Cnn14(**model_config)):
         scheduler=scheduler,
         num_epochs=10,
         verbose=True,
-        logdir=f"fold0",
+        fp16=True,
+        logdir="./logs",
         callbacks=callbacks,
         main_metric="epoch_f1",
+        load_best_on_end=True,
         minimize_metric=False)
+
+    # model evaluation
+    metrics = runner.evaluate_loader(
+        loader=loaders["valid"],
+        callbacks=callbacks
+    )
 
 if __name__ == '__main__':
     train()
