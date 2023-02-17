@@ -11,7 +11,6 @@ def sound_wave(path):
     fig.suptitle('Sound_waves', fontsize=16)
     
     for audio in glob.glob(f'{path}/*.wav'):
-        print(audio)
         y, sr = librosa.load(audio)
         librosa.display.waveshow(y, sr=sr, ax=ax[i], color = colors[i])
         ax[i].set_ylabel(audio.split('/')[1], fontsize=13)

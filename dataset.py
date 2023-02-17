@@ -6,6 +6,7 @@ import numpy as np
 import soundfile as sf
 import random
 import os
+import pandas as pd
 
 PERIOD = 5
 
@@ -13,10 +14,12 @@ PERIOD = 5
 class PANNsDataset:
     def __init__(
             self,
-            file_list,
+            file_path,
             waveform_transforms=None):
-        self.file_list = file_list  # list of list: [file_path, ebird_code]
+
         self.waveform_transforms = waveform_transforms
+        df = pd.read_csv(file_path)
+        self.file_list = df[['file_path', 'file_label']].values.tolist() # list of list [file_path, label]
 
     def __len__(self):
         return len(self.file_list)
@@ -48,18 +51,27 @@ class PANNsDataset:
         return {"waveform": y, "targets": labels}
 
 
-def create_file_list(path1, path2):
-    df = pd.DataFrame(
-        list(glob.glob(f"{path1}/*.wav")) +
-        list(glob.glob(f"{path2}/*.wav")),
-        columns=["file_path"]
-    )
-    df = df.sample(frac=1).reset_index(drop=True)
-    df["file_label"] = np.where(df['file_path'].str.contains(path1), 0, 1)
-    df['is_valid'] = np.random.choice(a=[True, False], size=len(df), p=[0.3, 0.7])
+def create_df(path1, path2,
+              train_name='train_waves.csv',
+              val_name='valid_waves.csv',
+              save_csv=False):
+    if save_csv:
+        df = pd.DataFrame(
+            list(glob.glob(f"{path1}/*.wav")) +
+            list(glob.glob(f"{path2}/*.wav")),
+            columns=["file_path"]
+        )
+        df = df.sample(frac=1).reset_index(drop=True)
+        df["file_label"] = np.where(df['file_path'].str.contains(path1), 0, 1)
+        df['is_valid'] = np.random.choice(a=[True, False], size=len(df), p=[0.25, 0.75])
 
-    return df[['file_path', 'file_label']][df['is_valid'] == False].values.tolist(), \
-        df[['file_path', 'file_label']][df['is_valid'] == True].values.tolist()
+        train, valid = df[['file_path', 'file_label']][df['is_valid'] == False], \
+            df[['file_path', 'file_label']][df['is_valid'] == True]
+
+        train.to_csv(train_name, index=False)
+        valid.to_csv(val_name, index=False)
+
+    return train_name, val_name
 
 
 def set_seed(seed: int = 42):

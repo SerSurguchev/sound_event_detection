@@ -1,17 +1,23 @@
 import torch
 import numpy as np
 import librosa
+from pytorch_utils import move_data_to_device
 
 
-def move_data_to_device(x, device):
-    if 'float' in str(x.dtype):
-        x = torch.Tensor(x)
-    elif 'int' in str(x.dtype):
-        x = torch.LongTensor(x)
+def get_model(weights_path: str, model):
+    checkpoint = torch.load(weights_path)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    # Parallel
+    if 'cuda' in str(device):
+        model.to(device)
+        print('GPU number: {}'.format(torch.cuda.device_count()))
+        model = torch.nn.DataParallel(model)
     else:
-        return x
+        print('Using CPU.')
 
-    return x.to(device)
+    model.eval()
+    return model
 
 
 def audio_tagging(args):
@@ -25,30 +31,15 @@ def audio_tagging(args):
     mel_bins = args.mel_bins
     fmin = args.fmin
     fmax = args.fmax
-    model_type = args.model_type
     checkpoint_path = args.checkpoint_path
     audio_path = args.audio_path
     device = torch.device('cuda') if args.cuda and torch.cuda.is_available() else torch.device('cpu')
 
-    classes_num = config.classes_num
-    labels = config.labels
+    classes_num = 2
+    labels = [0, 1]
 
     # Model
-    Model = eval(model_type)
-    model = Model(sample_rate=sample_rate, window_size=window_size,
-                  hop_size=hop_size, mel_bins=mel_bins, fmin=fmin, fmax=fmax,
-                  classes_num=classes_num)
-
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint['model'])
-
-    # Parallel
-    if 'cuda' in str(device):
-        model.to(device)
-        print('GPU number: {}'.format(torch.cuda.device_count()))
-        model = torch.nn.DataParallel(model)
-    else:
-        print('Using CPU.')
+    model = get_model()
 
     # Load audio
     (waveform, _) = librosa.core.load(audio_path, sr=sample_rate, mono=True)

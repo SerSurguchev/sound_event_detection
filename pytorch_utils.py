@@ -1,113 +1,87 @@
+from typing import List
 import torch
 import torch.nn as nn
 import numpy as np
-from catalyst.dl import SupervisedRunner, State, CallbackOrder, Callback, CheckpointCallback
-from sklearn.metrics import f1_score, average_precision_score
-
-class PANNsLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-        self.bce = nn.BCELoss()
-
-    def forward(self, input, target):
-        input_ = input["clipwise_output"]
-        input_ = torch.where(torch.isnan(input_),
-                             torch.zeros_like(input_),
-                             input_)
-        input_ = torch.where(torch.isinf(input_),
-                             torch.zeros_like(input_),
-                             input_)
-
-        target = target.float()
-
-        return self.bce(input_, target)
+import time
 
 
-class F1Callback(Callback):
-    def __init__(self,
-                 input_key: str = "targets",
-                 output_key: str = "logits",
-                 model_output_key: str = "clipwise_output",
-                 prefix: str = "f1"):
-        super().__init__(CallbackOrder.Metric)
+def move_data_to_device(x, device):
+    if 'float' in str(x.dtype):
+        x = torch.Tensor(x)
+    elif 'int' in str(x.dtype):
+        x = torch.LongTensor(x)
+    else:
+        return x
 
-        self.input_key = input_key
-        self.output_key = output_key
-        self.model_output_key = model_output_key
-        self.prefix = prefix
-
-    def on_loader_start(self, state: State):
-        self.prediction: List[np.ndarray] = []
-        self.target: List[np.ndarray] = []
-
-    def on_batch_end(self, state: State):
-        targ = state.input[self.input_key].detach().cpu().numpy()
-        out = state.output[self.output_key]
-
-        clipwise_output = out[self.model_output_key].detach().cpu().numpy()
-
-        self.prediction.append(clipwise_output)
-        self.target.append(targ)
-
-        y_pred = clipwise_output.argmax(axis=1)
-        y_true = targ.argmax(axis=1)
-
-        score = f1_score(y_true, y_pred, average="macro")
-        state.batch_metrics[self.prefix] = score
-
-    def on_loader_end(self, state: State):
-        y_pred = np.concatenate(self.prediction, axis=0).argmax(axis=1)
-        y_true = np.concatenate(self.target, axis=0).argmax(axis=1)
-        score = f1_score(y_true, y_pred, average="macro")
-        state.loader_metrics[self.prefix] = score
-        if state.is_valid_loader:
-            state.epoch_metrics[state.valid_loader + "_epoch_" +
-                                self.prefix] = score
-        else:
-            state.epoch_metrics["train_epoch_" + self.prefix] = score
+    return x.to(device)
 
 
-class mAPCallback(Callback):
-    def __init__(self,
-                 input_key: str = "targets",
-                 output_key: str = "logits",
-                 model_output_key: str = "clipwise_output",
-                 prefix: str = "mAP"):
-        super().__init__(CallbackOrder.Metric)
-        self.input_key = input_key
-        self.output_key = output_key
-        self.model_output_key = model_output_key
-        self.prefix = prefix
+def append_to_dict(dict, key, value):
+    if key in dict.keys():
+        dict[key].append(value)
+    else:
+        dict[key] = [value]
 
-    def on_loader_start(self, state: State):
-        self.prediction: List[np.ndarray] = []
-        self.target: List[np.ndarray] = []
 
-    def on_batch_end(self, state: State):
-        targ = state.input[self.input_key].detach().cpu().numpy()
-        out = state.output[self.output_key]
+def forward(model, generator, return_input=False,
+            return_target=False):
+    """Forward data to a model.
 
-        clipwise_output = out[self.model_output_key].detach().cpu().numpy()
+    Args:
+      model: object
+      generator: object
+      return_input: bool
+      return_target: bool
+    Returns:
+      audio_name: (audios_num,)
+      clipwise_output: (audios_num, classes_num)
+      (ifexist) segmentwise_output: (audios_num, segments_num, classes_num)
+      (ifexist) framewise_output: (audios_num, frames_num, classes_num)
+      (optional) return_input: (audios_num, segment_samples)
+      (optional) return_target: (audios_num, classes_num)
+    """
+    output_dict = {}
+    device = next(model.parameters()).device
+    time1 = time.time()
 
-        self.prediction.append(clipwise_output)
-        self.target.append(targ)
+    # Forward data to a model in mini-batches
+    for n, batch_data_dict in enumerate(generator):
+        print(n)
+        batch_waveform = move_data_to_device(batch_data_dict['waveform'], device)
 
-        score = average_precision_score(targ, clipwise_output, average=None)
-        score = np.nan_to_num(score).mean()
-        state.batch_metrics[self.prefix] = score
+        with torch.no_grad():
+            model.eval()
+            batch_output = model(batch_waveform)
 
-    def on_loader_end(self, state: State):
-        y_pred = np.concatenate(self.prediction, axis=0)
-        y_true = np.concatenate(self.target, axis=0)
-        score = average_precision_score(y_true, y_pred, average=None)
-        score = np.nan_to_num(score).mean()
-        state.loader_metrics[self.prefix] = score
-        if state.is_valid_loader:
-            state.epoch_metrics[state.valid_loader + "_epoch_" +
-                                self.prefix] = score
-        else:
-            state.epoch_metrics["train_epoch_" + self.prefix] = score
+        append_to_dict(output_dict, 'audio_name', batch_data_dict['audio_name'])
+
+        append_to_dict(output_dict, 'clipwise_output',
+                       batch_output['clipwise_output'].data.cpu().numpy())
+
+        if 'segmentwise_output' in batch_output.keys():
+            append_to_dict(output_dict, 'segmentwise_output',
+                           batch_output['segmentwise_output'].data.cpu().numpy())
+
+        if 'framewise_output' in batch_output.keys():
+            append_to_dict(output_dict, 'framewise_output',
+                           batch_output['framewise_output'].data.cpu().numpy())
+
+        if return_input:
+            append_to_dict(output_dict, 'waveform', batch_data_dict['waveform'])
+
+        if return_target:
+            if 'target' in batch_data_dict.keys():
+                append_to_dict(output_dict, 'target', batch_data_dict['target'])
+
+        if n % 10 == 0:
+            print(' --- Inference time: {:.3f} s / 10 iterations ---'.format(
+                time.time() - time1))
+            time1 = time.time()
+
+    for key in output_dict.keys():
+        output_dict[key] = np.concatenate(output_dict[key], axis=0)
+
+    return output_dict
 
 
 def interpolate(x: torch.Tensor, ratio: int):
@@ -154,6 +128,6 @@ def do_mixup(x, mixup_lambda):
     Returns:
       out: (batch_size, ...)
     """
-    out = (x[0 :: 2].transpose(0, -1) * mixup_lambda[0 :: 2] + \
-        x[1 :: 2].transpose(0, -1) * mixup_lambda[1 :: 2]).transpose(0, -1)
+    out = (x[0:: 2].transpose(0, -1) * mixup_lambda[0:: 2] + \
+           x[1:: 2].transpose(0, -1) * mixup_lambda[1:: 2]).transpose(0, -1)
     return out
