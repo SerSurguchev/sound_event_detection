@@ -29,7 +29,7 @@ model_config = {
     "sample_rate": 32000,
     "window_size": 1024,
     "hop_size": 320,
-    "mel_bins": 64,
+    "mel_bins": 128,
     "fmin": 50,
     "fmax": 14000,
     "classes_num": 2
@@ -94,7 +94,8 @@ def train(model=MobileNetV2(**model_config)):
         logdir=f"./MobileNetV2",
         callbacks=callbacks,
         main_metric="epoch_f1",
-        minimize_metric=False)
+        minimize_metric=True,
+    )
 
 
 if __name__ == '__main__':
