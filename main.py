@@ -3,10 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from catalyst.dl import SupervisedRunner, CheckpointCallback
-from catalyst import dl, utils
 
 from models import (
-    Wavegram_Cnn14,
     MobileNetV2,
     MobileNetV1,
     Wavegram_Logmel_Cnn14
@@ -32,12 +30,13 @@ model_config = {
     "mel_bins": 128,
     "fmin": 50,
     "fmax": 14000,
-    "classes_num": 2
+    "classes_num": 2,
+    "training": True,
 }
 
 
-def train(model=MobileNetV2(**model_config)):
-    train_name, val_name = create_df('serviceable', 'malfunction', save_csv=False)
+def train(weights_path, model=MobileNetV2(**model_config), pretrained=False, save_csv=False):
+    train_name, val_name = create_df('serviceable', 'malfunction', save_csv=save_csv)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # loaders
@@ -57,7 +56,12 @@ def train(model=MobileNetV2(**model_config)):
                                              drop_last=False)
     }
 
-    model = model
+    if pretrained:
+        print('Pretrained_weights loading...')
+        checkpoint = torch.load(weights_path)
+        model.load_state_dict(checkpoint["model_state_dict"])
+
+    model.to(device)
     model = torch.nn.DataParallel(model)
 
     # Optimizer
@@ -91,12 +95,11 @@ def train(model=MobileNetV2(**model_config)):
         scheduler=scheduler,
         num_epochs=50,
         verbose=True,
-        logdir=f"./MobileNetV2",
+        logdir=f"./MobileNetV2_spec_aug",
         callbacks=callbacks,
         main_metric="epoch_f1",
-        minimize_metric=True,
-    )
+        minimize_metric=True)
 
 
 if __name__ == '__main__':
-    train()
+    train(pretrained=True, save_csv=False, weights_path='./MobileNetV2_128/checkpoints/best.pth')

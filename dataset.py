@@ -6,7 +6,6 @@ import numpy as np
 import soundfile as sf
 import random
 import os
-import pandas as pd
 
 PERIOD = 5
 
@@ -19,7 +18,7 @@ class PANNsDataset:
 
         self.waveform_transforms = waveform_transforms
         df = pd.read_csv(file_path)
-        self.file_list = df[['file_path', 'file_label']].values.tolist() # list of list [file_path, label]
+        self.file_list = df[['file_path', 'file_label']].values.tolist()  # list of list [file_path, label]
 
     def __len__(self):
         return len(self.file_list)
