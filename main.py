@@ -7,7 +7,7 @@ from catalyst.dl import SupervisedRunner, CheckpointCallback
 from models import (
     MobileNetV2,
     MobileNetV1,
-    Wavegram_Logmel_Cnn14
+    MobileNetV3
 )
 
 from metrics import (
@@ -35,7 +35,7 @@ model_config = {
 }
 
 
-def train(weights_path, model=MobileNetV2(**model_config), pretrained=False, save_csv=False):
+def train(weights_path, model=None, pretrained=False, save_csv=False):
     train_name, val_name = create_df('serviceable', 'malfunction', save_csv=save_csv)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -58,6 +58,7 @@ def train(weights_path, model=MobileNetV2(**model_config), pretrained=False, sav
 
     if pretrained:
         print('Pretrained_weights loading...')
+        assert weights_path, "Weights path shouldn't be None"
         checkpoint = torch.load(weights_path)
         model.load_state_dict(checkpoint["model_state_dict"])
 
@@ -95,11 +96,11 @@ def train(weights_path, model=MobileNetV2(**model_config), pretrained=False, sav
         scheduler=scheduler,
         num_epochs=50,
         verbose=True,
-        logdir=f"./MobileNetV2_spec_aug",
+        logdir=f"./MobileNetV3_spec_aug",
         callbacks=callbacks,
         main_metric="epoch_f1",
         minimize_metric=True)
 
 
 if __name__ == '__main__':
-    train(pretrained=True, save_csv=False, weights_path='./MobileNetV2_128/checkpoints/best.pth')
+    train(pretrained=False, save_csv=False, weights_path='./MobileNetV2_128/checkpoints/best.pth', model=MobileNetV3(**model_config))
